@@ -216,6 +216,7 @@ class SAM2AutomaticMaskGenerator:
                 "point_coords": [mask_data["points"][idx].tolist()],
                 "stability_score": mask_data["stability_score"][idx].item(),
                 "crop_box": box_xyxy_to_xywh(mask_data["crop_boxes"][idx]).tolist(),
+                "shadow_preds": mask_data["shadow_preds"][idx].item(),
             }
             curr_anns.append(ann)
 
@@ -311,7 +312,7 @@ class SAM2AutomaticMaskGenerator:
         in_labels = torch.ones(
             in_points.shape[0], dtype=torch.int, device=in_points.device
         )
-        masks, iou_preds, low_res_masks = self.predictor._predict(
+        masks, iou_preds, low_res_masks, shadow_preds = self.predictor._predict(
             in_points[:, None, :],
             in_labels[:, None],
             multimask_output=self.multimask_output,
@@ -324,6 +325,7 @@ class SAM2AutomaticMaskGenerator:
             iou_preds=iou_preds.flatten(0, 1),
             points=points.repeat_interleave(masks.shape[1], dim=0),
             low_res_masks=low_res_masks.flatten(0, 1),
+            shadow_preds=shadow_preds.flatten(0, 1),
         )
         del masks
 

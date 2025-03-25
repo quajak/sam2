@@ -22,6 +22,9 @@ class MaskDecoder(nn.Module):
         activation: Type[nn.Module] = nn.GELU,
         iou_head_depth: int = 3,
         iou_head_hidden_dim: int = 256,
+        shadow_head_depth: int = 3,
+        shadow_head_hidden_dim: int = 256,
+        shadow_prediction_use_sigmoid: bool = True,
         use_high_res_features: bool = False,
         iou_prediction_use_sigmoid=False,
         dynamic_multimask_via_stability=False,
@@ -46,6 +49,10 @@ class MaskDecoder(nn.Module):
             mask quality
           iou_head_hidden_dim (int): the hidden dimension of the MLP
             used to predict mask quality
+          shadow_head_depth (int): the depth of the MLP used to predict
+            weather mask is a shadow
+          shadow_head_hidden_dim (int): the hidden dimension of the MLP
+            used to predict weather mask is a shadow  
         """
         super().__init__()
         self.transformer_dim = transformer_dim
@@ -96,6 +103,14 @@ class MaskDecoder(nn.Module):
             iou_head_depth,
             sigmoid_output=iou_prediction_use_sigmoid,
         )
+
+        self.shadow_prediction_head = MLP(
+            transformer_dim,
+            shadow_head_hidden_dim,
+            self.num_mask_tokens,
+            shadow_head_depth,
+            sigmoid_output=shadow_prediction_use_sigmoid,
+        )
         if self.pred_obj_scores:
             self.pred_obj_score_head = nn.Linear(transformer_dim, 1)
             if pred_obj_scores_mlp:
@@ -132,8 +147,9 @@ class MaskDecoder(nn.Module):
           torch.Tensor: batched predicted masks
           torch.Tensor: batched predictions of mask quality
           torch.Tensor: batched SAM token for mask output
+          torch.Tensor: batched object shadow logits
         """
-        masks, iou_pred, mask_tokens_out, object_score_logits = self.predict_masks(
+        masks, iou_pred, mask_tokens_out, object_score_logits, shadow_pred = self.predict_masks(
             image_embeddings=image_embeddings,
             image_pe=image_pe,
             sparse_prompt_embeddings=sparse_prompt_embeddings,
@@ -146,11 +162,13 @@ class MaskDecoder(nn.Module):
         if multimask_output:
             masks = masks[:, 1:, :, :]
             iou_pred = iou_pred[:, 1:]
+            shadow_pred = shadow_pred[:, 1:]
         elif self.dynamic_multimask_via_stability and not self.training:
-            masks, iou_pred = self._dynamic_multimask_via_stability(masks, iou_pred)
+            masks, iou_pred, shadow_pred = self._dynamic_multimask_via_stability(masks, iou_pred, shadow_pred)
         else:
             masks = masks[:, 0:1, :, :]
             iou_pred = iou_pred[:, 0:1]
+            shadow_pred = shadow_pred[:, 0:1]
 
         if multimask_output and self.use_multimask_token_for_obj_ptr:
             sam_tokens_out = mask_tokens_out[:, 1:]  # [b, 3, c] shape
@@ -163,7 +181,7 @@ class MaskDecoder(nn.Module):
             sam_tokens_out = mask_tokens_out[:, 0:1]  # [b, 1, c] shape
 
         # Prepare output
-        return masks, iou_pred, sam_tokens_out, object_score_logits
+        return masks, iou_pred, sam_tokens_out, object_score_logits, shadow_pred
 
     def predict_masks(
         self,
@@ -242,7 +260,9 @@ class MaskDecoder(nn.Module):
             # Obj scores logits - default to 10.0, i.e. assuming the object is present, sigmoid(10)=1
             object_score_logits = 10.0 * iou_pred.new_ones(iou_pred.shape[0], 1)
 
-        return masks, iou_pred, mask_tokens_out, object_score_logits
+        shadow_logits = self.shadow_prediction_head(iou_token_out)
+
+        return masks, iou_pred, mask_tokens_out, object_score_logits, shadow_logits
 
     def _get_stability_scores(self, mask_logits):
         """
@@ -256,7 +276,7 @@ class MaskDecoder(nn.Module):
         stability_scores = torch.where(area_u > 0, area_i / area_u, 1.0)
         return stability_scores
 
-    def _dynamic_multimask_via_stability(self, all_mask_logits, all_iou_scores):
+    def _dynamic_multimask_via_stability(self, all_mask_logits, all_iou_scores, all_shadow_scores):
         """
         When outputting a single mask, if the stability score from the current single-mask
         output (based on output token 0) falls below a threshold, we instead select from
@@ -266,6 +286,7 @@ class MaskDecoder(nn.Module):
         # The best mask from multimask output tokens (1~3)
         multimask_logits = all_mask_logits[:, 1:, :, :]
         multimask_iou_scores = all_iou_scores[:, 1:]
+        multimask_shadow_scores = all_shadow_scores[:, 1:]
         best_scores_inds = torch.argmax(multimask_iou_scores, dim=-1)
         batch_inds = torch.arange(
             multimask_iou_scores.size(0), device=all_iou_scores.device
@@ -274,10 +295,13 @@ class MaskDecoder(nn.Module):
         best_multimask_logits = best_multimask_logits.unsqueeze(1)
         best_multimask_iou_scores = multimask_iou_scores[batch_inds, best_scores_inds]
         best_multimask_iou_scores = best_multimask_iou_scores.unsqueeze(1)
+        best_multimask_shadow_scores = multimask_shadow_scores[batch_inds, best_scores_inds]
+        best_multimask_shadow_scores = best_multimask_shadow_scores.unsqueeze(1)
 
         # The mask from singlemask output token 0 and its stability score
         singlemask_logits = all_mask_logits[:, 0:1, :, :]
         singlemask_iou_scores = all_iou_scores[:, 0:1]
+        singlemask_shadow_scores = all_shadow_scores[:, 0:1]
         stability_scores = self._get_stability_scores(singlemask_logits)
         is_stable = stability_scores >= self.dynamic_multimask_stability_thresh
 
@@ -292,4 +316,11 @@ class MaskDecoder(nn.Module):
             singlemask_iou_scores,
             best_multimask_iou_scores,
         )
-        return mask_logits_out, iou_scores_out
+
+        shadow_scores_out = torch.where(
+            is_stable.expand_as(singlemask_shadow_scores),
+            singlemask_shadow_scores,
+            best_multimask_shadow_scores,
+        )
+
+        return mask_logits_out, iou_scores_out, shadow_scores_out
