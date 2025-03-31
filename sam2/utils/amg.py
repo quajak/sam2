@@ -61,7 +61,10 @@ class MaskData:
     def cat(self, new_stats: "MaskData") -> None:
         for k, v in new_stats.items():
             if k not in self._stats or self._stats[k] is None:
-                self._stats[k] = deepcopy(v)
+                if isinstance(v, torch.Tensor) and v.requires_grad:
+                    self._stats[k] = v
+                else:
+                    self._stats[k] = deepcopy(v)
             elif isinstance(v, torch.Tensor):
                 self._stats[k] = torch.cat([self._stats[k], v], dim=0)
             elif isinstance(v, np.ndarray):

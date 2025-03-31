@@ -216,7 +216,7 @@ class SAM2AutomaticMaskGenerator:
                 "point_coords": [mask_data["points"][idx].tolist()],
                 "stability_score": mask_data["stability_score"][idx].item(),
                 "crop_box": box_xyxy_to_xywh(mask_data["crop_boxes"][idx]).tolist(),
-                "shadow_preds": mask_data["shadow_preds"][idx].item(),
+                "shadow_preds": mask_data["shadow_preds"][idx],
             }
             curr_anns.append(ann)
 
@@ -246,7 +246,7 @@ class SAM2AutomaticMaskGenerator:
                 iou_threshold=self.crop_nms_thresh,
             )
             data.filter(keep_by_nms)
-        data.to_numpy()
+        # data.to_numpy()
         return data
 
     def _process_crop(

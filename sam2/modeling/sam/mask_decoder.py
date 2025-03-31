@@ -260,7 +260,8 @@ class MaskDecoder(nn.Module):
             # Obj scores logits - default to 10.0, i.e. assuming the object is present, sigmoid(10)=1
             object_score_logits = 10.0 * iou_pred.new_ones(iou_pred.shape[0], 1)
 
-        shadow_logits = self.shadow_prediction_head(iou_token_out)
+        with torch.enable_grad():
+            shadow_logits = self.shadow_prediction_head(iou_token_out)
 
         return masks, iou_pred, mask_tokens_out, object_score_logits, shadow_logits
 
