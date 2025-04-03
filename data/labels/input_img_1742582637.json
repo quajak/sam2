@@ -1,0 +1,28 @@
+{
+  "image_path": "data/test_sam/input_img_1742582637.png",
+  "labels": [
+    true,
+    false,
+    false,
+    false,
+    true,
+    false,
+    false,
+    false,
+    false,
+    true,
+    false,
+    false,
+    false,
+    true,
+    false,
+    false,
+    true,
+    true,
+    true,
+    true,
+    true,
+    false,
+    true
+  ]
+}

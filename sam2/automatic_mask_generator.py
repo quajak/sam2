@@ -167,7 +167,7 @@ class SAM2AutomaticMaskGenerator:
         return cls(sam_model, **kwargs)
 
     @torch.no_grad()
-    def generate(self, image: np.ndarray) -> List[Dict[str, Any]]:
+    def generate(self, image: np.ndarray, return_numpy: bool = True) -> List[Dict[str, Any]]:
         """
         Generates masks for the given image.
 
@@ -193,7 +193,7 @@ class SAM2AutomaticMaskGenerator:
         """
 
         # Generate masks
-        mask_data = self._generate_masks(image)
+        mask_data = self._generate_masks(image, return_numpy=return_numpy)
 
         # Encode masks
         if self.output_mode == "coco_rle":
@@ -222,7 +222,7 @@ class SAM2AutomaticMaskGenerator:
 
         return curr_anns
 
-    def _generate_masks(self, image: np.ndarray) -> MaskData:
+    def _generate_masks(self, image: np.ndarray, return_numpy: bool = True) -> MaskData:
         orig_size = image.shape[:2]
         crop_boxes, layer_idxs = generate_crop_boxes(
             orig_size, self.crop_n_layers, self.crop_overlap_ratio
@@ -246,7 +246,8 @@ class SAM2AutomaticMaskGenerator:
                 iou_threshold=self.crop_nms_thresh,
             )
             data.filter(keep_by_nms)
-        # data.to_numpy()
+        if return_numpy:
+            data.to_numpy()
         return data
 
     def _process_crop(
@@ -320,12 +321,15 @@ class SAM2AutomaticMaskGenerator:
         )
 
         # Serialize predictions and store in MaskData
+        with torch.enable_grad():
+            shadow_preds = shadow_preds.flatten(0, 1)
+            
         data = MaskData(
             masks=masks.flatten(0, 1),
             iou_preds=iou_preds.flatten(0, 1),
             points=points.repeat_interleave(masks.shape[1], dim=0),
             low_res_masks=low_res_masks.flatten(0, 1),
-            shadow_preds=shadow_preds.flatten(0, 1),
+            shadow_preds=shadow_preds,
         )
         del masks
 

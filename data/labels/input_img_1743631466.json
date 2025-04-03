@@ -1,0 +1,16 @@
+{
+  "image_path": "../data/imgs/input_img_1743631466.png",
+  "labels": [
+    true,
+    false,
+    false,
+    false,
+    false,
+    false,
+    false,
+    true,
+    false,
+    false,
+    true
+  ]
+}

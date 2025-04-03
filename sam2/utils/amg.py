@@ -48,7 +48,8 @@ class MaskData:
             if v is None:
                 self._stats[k] = None
             elif isinstance(v, torch.Tensor):
-                self._stats[k] = v[torch.as_tensor(keep, device=v.device)]
+                with torch.enable_grad():
+                    self._stats[k] = v[torch.as_tensor(keep, device=v.device)]
             elif isinstance(v, np.ndarray):
                 self._stats[k] = v[keep.detach().cpu().numpy()]
             elif isinstance(v, list) and keep.dtype == torch.bool:
@@ -66,7 +67,8 @@ class MaskData:
                 else:
                     self._stats[k] = deepcopy(v)
             elif isinstance(v, torch.Tensor):
-                self._stats[k] = torch.cat([self._stats[k], v], dim=0)
+                with torch.enable_grad():
+                    self._stats[k] = torch.cat([self._stats[k], v], dim=0)
             elif isinstance(v, np.ndarray):
                 self._stats[k] = np.concatenate([self._stats[k], v], axis=0)
             elif isinstance(v, list):
