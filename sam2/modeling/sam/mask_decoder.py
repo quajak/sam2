@@ -149,7 +149,7 @@ class MaskDecoder(nn.Module):
           torch.Tensor: batched SAM token for mask output
           torch.Tensor: batched object shadow logits
         """
-        masks, iou_pred, mask_tokens_out, object_score_logits, shadow_pred = self.predict_masks(
+        masks, iou_pred, mask_tokens_out, object_score_logits, shadow_pred, iou_token_out = self.predict_masks(
             image_embeddings=image_embeddings,
             image_pe=image_pe,
             sparse_prompt_embeddings=sparse_prompt_embeddings,
@@ -169,6 +169,7 @@ class MaskDecoder(nn.Module):
             masks = masks[:, 0:1, :, :]
             iou_pred = iou_pred[:, 0:1]
             shadow_pred = shadow_pred[:, 0:1]
+            iou_token_out = iou_token_out[:, 0:1]
 
         if multimask_output and self.use_multimask_token_for_obj_ptr:
             sam_tokens_out = mask_tokens_out[:, 1:]  # [b, 3, c] shape
@@ -181,7 +182,7 @@ class MaskDecoder(nn.Module):
             sam_tokens_out = mask_tokens_out[:, 0:1]  # [b, 1, c] shape
 
         # Prepare output
-        return masks, iou_pred, sam_tokens_out, object_score_logits, shadow_pred
+        return masks, iou_pred, sam_tokens_out, object_score_logits, shadow_pred, iou_token_out
 
     def predict_masks(
         self,
@@ -263,7 +264,7 @@ class MaskDecoder(nn.Module):
         with torch.enable_grad():
             shadow_logits = self.shadow_prediction_head(iou_token_out)
 
-        return masks, iou_pred, mask_tokens_out, object_score_logits, shadow_logits
+        return masks, iou_pred, mask_tokens_out, object_score_logits, shadow_logits, iou_token_out
 
     def _get_stability_scores(self, mask_logits):
         """

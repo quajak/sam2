@@ -195,6 +195,8 @@ class SAM2ImagePredictor:
         all_ious = []
         all_low_res_masks = []
         all_shadows = []
+        all_shadow_input_tokens = []
+        all_shadow_input_inds = []
         for img_idx in range(num_images):
             # Transform input prompts
             point_coords = (
@@ -215,7 +217,7 @@ class SAM2ImagePredictor:
                 normalize_coords,
                 img_idx=img_idx,
             )
-            masks, iou_predictions, low_res_masks, shadow_preds = self._predict(
+            masks, iou_predictions, low_res_masks, shadow_preds, shadow_input_tokens= self._predict(
                 unnorm_coords,
                 labels,
                 unnorm_box,
@@ -230,12 +232,14 @@ class SAM2ImagePredictor:
             )
             low_res_masks_np = low_res_masks.squeeze(0).float().detach().cpu().numpy()
             shadow_preds_np = shadow_preds.squeeze(0).float().detach().cpu().numpy()
+            shadow_input_tokens_np = shadow_input_tokens.squeeze(0).float().detach().cpu().numpy()
             all_masks.append(masks_np)
             all_ious.append(iou_predictions_np)
             all_low_res_masks.append(low_res_masks_np)
             all_shadows.append(shadow_preds_np)
+            all_shadow_input_tokens.append(shadow_input_tokens_np)
 
-        return all_masks, all_ious, all_low_res_masks, all_shadows
+        return all_masks, all_ious, all_low_res_masks, all_shadows, all_shadow_input_tokens
 
     def predict(
         self,
@@ -291,7 +295,7 @@ class SAM2ImagePredictor:
             point_coords, point_labels, box, mask_input, normalize_coords
         )
 
-        masks, iou_predictions, low_res_masks, shadow_preds = self._predict(
+        masks, iou_predictions, low_res_masks, shadow_preds, shadow_input_tokens = self._predict(
             unnorm_coords,
             labels,
             unnorm_box,
@@ -304,7 +308,8 @@ class SAM2ImagePredictor:
         iou_predictions_np = iou_predictions.squeeze(0).float().detach().cpu().numpy()
         low_res_masks_np = low_res_masks.squeeze(0).float().detach().cpu().numpy()
         shadow_preds_np = shadow_preds.squeeze(0).float().detach().cpu().numpy()
-        return masks_np, iou_predictions_np, low_res_masks_np, shadow_preds_np
+        shadow_input_tokens_np = shadow_input_tokens.squeeze(0).float().detach().cpu().numpy()
+        return masks_np, iou_predictions_np, low_res_masks_np, shadow_preds_np, shadow_input_tokens_np
 
     def _prep_prompts(
         self, point_coords, point_labels, box, mask_logits, normalize_coords, img_idx=-1
@@ -421,7 +426,7 @@ class SAM2ImagePredictor:
             feat_level[img_idx].unsqueeze(0)
             for feat_level in self._features["high_res_feats"]
         ]
-        low_res_masks, iou_predictions, _, _, shadow_preds = self.model.sam_mask_decoder(
+        low_res_masks, iou_predictions, _, _, shadow_preds, iou_token_out = self.model.sam_mask_decoder(
             image_embeddings=self._features["image_embed"][img_idx].unsqueeze(0),
             image_pe=self.model.sam_prompt_encoder.get_dense_pe(),
             sparse_prompt_embeddings=sparse_embeddings,
@@ -439,7 +444,7 @@ class SAM2ImagePredictor:
         if not return_logits:
             masks = masks > self.mask_threshold
 
-        return masks, iou_predictions, low_res_masks, shadow_preds
+        return masks, iou_predictions, low_res_masks, shadow_preds, iou_token_out
 
     def get_image_embedding(self) -> torch.Tensor:
         """
